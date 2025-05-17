@@ -1,4 +1,4 @@
-if gamesList[game.GameId] == "Criminality" then
+--//if gamesList[game.GameId] == "Criminality" then
     --// Gun metadata and grabbing gun functions
     local GunClient   = require(ReplicatedStorage.Modules.GunClient)
     local GunMetadata = getrawmetatable(GunClient)

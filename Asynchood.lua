@@ -219,228 +219,118 @@ game:GetService("Lighting").Changed:Connect(function()
         game:GetService("Lighting").Ambient = Color3.fromRGB(127, 127, 127)
     end
 end)
--- Bone ESP Implementation (Full Version)
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
+-- Ultra-Compact Billboard ESP (Feature-Packed)
+local plrs,ws,rs,cp = game:GetService("Players"),workspace,game:GetService("RunService"),game:GetService("CorePackages")
+local lp,cc = plrs.LocalPlayer,ws.CurrentCamera
+local espCache,conns = {},{}
 
--- Configuration
-local BONE_ESP_SETTINGS = {
-    Enabled = true,
-    TeamCheck = true,
-    EnemyColor = Color3.fromRGB(255, 50, 50),
-    TeamColor = Color3.fromRGB(50, 255, 50),
-    BoneThickness = 1,
-    BoneTransparency = 0.5,
-    BoneNames = {
-        "Head", "UpperTorso", "LowerTorso",
-        "LeftUpperArm", "LeftLowerArm", "LeftHand",
-        "RightUpperArm", "RightLowerArm", "RightHand",
-        "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
-        "RightUpperLeg", "RightLowerLeg", "RightFoot"
-    },
-    BoneConnections = {
-        {"Head", "UpperTorso"},
-        {"UpperTorso", "LowerTorso"},
-        {"UpperTorso", "LeftUpperArm"},
-        {"LeftUpperArm", "LeftLowerArm"},
-        {"LeftLowerArm", "LeftHand"},
-        {"UpperTorso", "RightUpperArm"},
-        {"RightUpperArm", "RightLowerArm"},
-        {"RightLowerArm", "RightHand"},
-        {"LowerTorso", "LeftUpperLeg"},
-        {"LeftUpperLeg", "LeftLowerLeg"},
-        {"LeftLowerLeg", "LeftFoot"},
-        {"LowerTorso", "RightUpperLeg"},
-        {"RightUpperLeg", "RightLowerLeg"},
-        {"RightLowerLeg", "RightFoot"}
+-- Config (Edit these!)
+local cfg = {
+    TeamColor = true,          -- Use team colors
+    HealthColor = true,        -- Health-based coloring
+    ShowName = true,           -- Display player name
+    ShowHealth = true,         -- Show health bar
+    ShowDistance = true,       -- Display distance
+    MaxDist = 1000,            -- Max render distance
+    UpdateRate = 0.1,          -- Update interval
+    HealthGradient = {         -- Health color gradient
+        {1,Color3.new(0,1,0)},    -- 100% Green
+        {0.5,Color3.new(1,1,0)},  -- 50% Yellow
+        {0.2,Color3.new(1,0,0)}   -- 20% Red
     }
 }
 
--- Storage
-local BoneESP = {
-    Drawings = {},
-    Connections = {}
-}
+-- Main Functions
+local function lerpColor(t) for i=1,#cfg.HealthGradient-1 do local l,u=cfg.HealthGradient[i+1],cfg.HealthGradient[i]
+    if t>=l[1]then return l[2]:Lerp(u[2],(t-l[1])/(u[1]-l[1])end end return cfg.HealthGradient[#cfg.HealthGradient][2] end
 
--- Create a bone drawing
-local function CreateBoneDrawing()
-    local drawing = Drawing.new("Line")
-    drawing.Thickness = BONE_ESP_SETTINGS.BoneThickness
-    drawing.Transparency = BONE_ESP_SETTINGS.BoneTransparency
-    drawing.Visible = false
-    return drawing
+local function updateESP()
+    for p,esp in pairs(espCache) do
+        if p and p.Character and esp.billboard then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            if hrp and hum and hum.Health>0 then
+                local dist = (hrp.Position-cc.CFrame.Position).Magnitude
+                if dist < cfg.MaxDist then
+                    local isTeam = cfg.TeamColor and p.Team==lp.Team
+                    local color = isTeam and Color3.new(0,1,0) or cfg.HealthColor and lerpColor(hum.Health/hum.MaxHealth) or Color3.new(1,0,0)
+                    
+                    -- Update billboard
+                    esp.billboard.Enabled = true
+                    esp.billboard.Adornee = hrp
+                    esp.billboard.TextLabel.Text = (cfg.ShowName and p.Name.."\n" or "")..
+                                                  (cfg.ShowHealth and "HP: "..math.floor(hum.Health).."/"..math.floor(hum.MaxHealth).."\n" or "")..
+                                                  (cfg.ShowDistance and string.format("Dist: %.1fm",dist) or "")
+                    esp.billboard.TextLabel.TextColor3 = color
+                    
+                    -- Health bar visualization
+                    if esp.healthBar then
+                        local perc = hum.Health/hum.MaxHealth
+                        esp.healthBar.Size = UDim2.new(0.1,0,perc*2,0)
+                        esp.healthBar.Position = UDim2.new(0.5,0,1-perc,0)
+                        esp.healthBar.BackgroundColor3 = color
+                    end
+                else esp.billboard.Enabled = false end
+            else esp.billboard.Enabled = false end
+        end
+    end
 end
 
--- Initialize player bones
-local function InitPlayerBones(player)
-    if player == LocalPlayer then return end
-    
-    BoneESP.Drawings[player] = {
-        Bones = {},
-        Connections = {}
+local function setupPlayer(p)
+    if p==lp then return end
+    espCache[p] = {
+        billboard = Instance.new("BillboardGui"),
+        healthBar = Instance.new("Frame")
     }
+    local esp = espCache[p]
     
-    -- Create bone drawings
-    for _, boneName in pairs(BONE_ESP_SETTINGS.BoneNames) do
-        BoneESP.Drawings[player].Bones[boneName] = CreateBoneDrawing()
-    end
+    -- Configure billboard
+    esp.billboard.Name = p.Name.."_ESP"
+    esp.billboard.Size = UDim2.new(0,200,0,50)
+    esp.billboard.StudsOffset = Vector3.new(0,3,0)
+    esp.billboard.AlwaysOnTop = true
+    esp.billboard.Adornee = nil
+    esp.billboard.Parent = cp
     
-    -- Create connection drawings
-    for _, connection in pairs(BONE_ESP_SETTINGS.BoneConnections) do
-        table.insert(BoneESP.Drawings[player].Connections, {
-            Drawing = CreateBoneDrawing(),
-            From = connection[1],
-            To = connection[2]
-        })
-    end
+    -- Text label
+    local txt = Instance.new("TextLabel")
+    txt.Size = UDim2.new(1,0,1,0)
+    txt.BackgroundTransparency = 1
+    txt.TextStrokeTransparency = 0.5
+    txt.TextStrokeColor3 = Color3.new(0,0,0)
+    txt.Font = Enum.Font.SourceSansBold
+    txt.TextSize = 18
+    txt.Parent = esp.billboard
     
-    -- Character added event
-    BoneESP.Drawings[player].CharacterAdded = player.CharacterAdded:Connect(function(character)
-        UpdatePlayerBones(player, character)
+    -- Health bar
+    esp.healthBar.Name = "HealthBar"
+    esp.healthBar.AnchorPoint = Vector2.new(0.5,1)
+    esp.healthBar.Size = UDim2.new(0.1,0,2,0)
+    esp.healthBar.Position = UDim2.new(0.5,0,1,0)
+    esp.healthBar.BorderSizePixel = 0
+    esp.healthBar.BackgroundColor3 = Color3.new(1,0,0)
+    esp.healthBar.Parent = esp.billboard
+    
+    -- Character tracking
+    p.CharacterAdded:Connect(function(c)
+        if esp.billboard then esp.billboard.Adornee = c:WaitForChild("HumanoidRootPart",3) end
     end)
-    
-    -- Character removal
-    BoneESP.Drawings[player].CharacterRemoving = player.CharacterRemoving:Connect(function()
-        CleanupPlayerBones(player)
-    end)
-    
-    -- Initial setup if character exists
-    if player.Character then
-        UpdatePlayerBones(player, player.Character)
-    end
+    if p.Character then esp.billboard.Adornee = p.Character:FindFirstChild("HumanoidRootPart") end
 end
 
--- Update bone positions
-local function UpdatePlayerBones(player, character)
-    if not BoneESP.Drawings[player] then return end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then
-        CleanupPlayerBones(player)
-        return
-    end
-    
-    -- Update bone positions
-    for boneName, drawing in pairs(BoneESP.Drawings[player].Bones) do
-        local part = character:FindFirstChild(boneName)
-        if part then
-            local position, visible = workspace.CurrentCamera:WorldToViewportPoint(part.Position)
-            if visible then
-                drawing.Visible = true
-                drawing.From = Vector2.new(position.X, position.Y)
-                drawing.To = Vector2.new(position.X, position.Y)
-                drawing.Color = BONE_ESP_SETTINGS.TeamCheck and player.Team == LocalPlayer.Team 
-                    and BONE_ESP_SETTINGS.TeamColor or BONE_ESP_SETTINGS.EnemyColor
-            else
-                drawing.Visible = false
-            end
-        else
-            drawing.Visible = false
-        end
-    end
-    
-    -- Update bone connections
-    for _, connection in pairs(BoneESP.Drawings[player].Connections) do
-        local fromPart = character:FindFirstChild(connection.From)
-        local toPart = character:FindFirstChild(connection.To)
-        
-        if fromPart and toPart then
-            local fromPos, fromVisible = workspace.CurrentCamera:WorldToViewportPoint(fromPart.Position)
-            local toPos, toVisible = workspace.CurrentCamera:WorldToViewportPoint(toPart.Position)
-            
-            if fromVisible and toVisible then
-                connection.Drawing.Visible = true
-                connection.Drawing.From = Vector2.new(fromPos.X, fromPos.Y)
-                connection.Drawing.To = Vector2.new(toPos.X, toPos.Y)
-                connection.Drawing.Color = BONE_ESP_SETTINGS.TeamCheck and player.Team == LocalPlayer.Team 
-                    and BONE_ESP_SETTINGS.TeamColor or BONE_ESP_SETTINGS.EnemyColor
-            else
-                connection.Drawing.Visible = false
-            end
-        else
-            connection.Drawing.Visible = false
-        end
-    end
-end
-
---- Cleanup player bones
-local function CleanupPlayerBones(player)
-    if not BoneESP.Drawings[player] then return end
-    
-    -- Disconnect events
-    if BoneESP.Drawings[player].CharacterAdded then
-        BoneESP.Drawings[player].CharacterAdded:Disconnect()
-    end
-    if BoneESP.Drawings[player].CharacterRemoving then
-        BoneESP.Drawings[player].CharacterRemoving:Disconnect()
-    end
-    
-    -- Remove drawings
-    for _, drawing in pairs(BoneESP.Drawings[player].Bones) do
-        drawing:Remove()
-    end
-    for _, connection in pairs(BoneESP.Drawings[player].Connections) do
-        connection.Drawing:Remove()
-    end
-    
-    BoneESP.Drawings[player] = nil
-end
-
--- Main update loop
-local function BoneESPUpdate()
-    for player, data in pairs(BoneESP.Drawings) do
-        if player and player.Character then
-            UpdatePlayerBones(player, player.Character)
-        else
-            CleanupPlayerBones(player)
-        end
-    end
-end
-
--- Initialize all players
-local function InitAllPlayers()
-    for _, player in ipairs(Players:GetPlayers()) do
-        InitPlayerBones(player)
-    end
-    
-    -- Player added event
-    table.insert(BoneESP.Connections, Players.PlayerAdded:Connect(InitPlayerBones))
-    
-    -- Player leaving event
-    table.insert(BoneESP.Connections, Players.PlayerRemoving:Connect(function(player)
-        CleanupPlayerBones(player)
-    end))
-end
-
--- Toggle function
-local function ToggleBoneESP(state)
-    BONE_ESP_SETTINGS.Enabled = state
-    
-    if state then
-        -- Initialize
-        InitAllPlayers()
-        table.insert(BoneESP.Connections, RunService.Heartbeat:Connect(BoneESPUpdate))
+-- Init/cleanup
+local function toggleESP(b)
+    if b then
+        for _,p in ipairs(plrs:GetPlayers()) do setupPlayer(p) end
+        table.insert(conns,plrs.PlayerAdded:Connect(setupPlayer))
+        table.insert(conns,plrs.PlayerRemoving:Connect(function(p) if espCache[p] then espCache[p].billboard:Destroy() espCache[p]=nil end end))
+        table.insert(conns,rs.Heartbeat:Connect(updateESP))
     else
-        -- Cleanup
-        for _, connection in ipairs(BoneESP.Connections) do
-            connection:Disconnect()
-        end
-        BoneESP.Connections = {}
-        
-        for player in pairs(BoneESP.Drawings) do
-            CleanupPlayerBones(player)
-        end
-        BoneESP.Drawings = {}
+        for _,c in ipairs(conns) do c:Disconnect() end
+        for p,esp in pairs(espCache) do if esp.billboard then esp.billboard:Destroy() end end
+        conns,espCache = {},{}
     end
 end
 
--- Create toggle in your UI
-MiscSection:AddToggle("Bone ESP", BONE_ESP_SETTINGS.Enabled, function(state)
-    ToggleBoneESP(state)
-end)
-
--- Initial setup if enabled
-if BONE_ESP_SETTINGS.Enabled then
-    ToggleBoneESP(true)
-end
+-- Create UI Toggle
+MiscSection:AddToggle("Billboard ESP", false, toggleESP)
